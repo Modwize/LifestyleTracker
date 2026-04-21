@@ -55,6 +55,7 @@ export default async function TodayPage() {
   const [
     actionsRes, scoreRes, streakRes, weekRes, dailyLogRes,
     phaseRes, openResetRes, pendingPhaseReqRes, pendingAdjRes, surgeryLifeRes,
+    milestonesRes,
   ] = await Promise.all([
     supabase.from('today_actions').select('*').maybeSingle(),
     supabase.from('daily_adherence_scores').select('score').eq('day', isoDay(today)).maybeSingle(),
@@ -70,6 +71,8 @@ export default async function TodayPage() {
       .eq('decision', 'pending').order('created_at', { ascending: false }).limit(1).maybeSingle(),
     supabase.from('life_events').select('event_date')
       .eq('kind', 'surgery_scheduled').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('milestones').select('kind,achieved_on,payload')
+      .order('achieved_on', { ascending: false }).limit(5),
   ]);
 
   const actions = actionsRes.data as TodayActions | null;
@@ -89,6 +92,9 @@ export default async function TodayPage() {
   const pendingPhase = pendingPhaseReqRes.data as PendingPhaseRequest | null;
   const pendingAdj = pendingAdjRes.data as PendingAdjustment | null;
   const surgeryScheduled = surgeryLifeRes.data as { event_date: string } | null;
+  const milestones = (milestonesRes.data ?? []) as Array<{
+    kind: string; achieved_on: string; payload: Record<string, unknown> | null;
+  }>;
 
   const hasPending = !!(openReset || pendingPhase || pendingAdj);
   const needsSurgeryDate = phaseMode === 'pre_surgery' && !surgeryScheduled;
@@ -261,6 +267,21 @@ export default async function TodayPage() {
           <AdherenceBar value={weekAdherence?.adherence_pct ?? 0} />
         </Card>
 
+        {/* Milestones — only shown when the user has earned something */}
+        {milestones.length > 0 && (
+          <Card>
+            <CardLabel>Milestones</CardLabel>
+            <ul className="-my-1 divide-y divide-zinc-100 dark:divide-zinc-800">
+              {milestones.map((m) => (
+                <li key={m.kind} className="flex items-center justify-between py-2.5">
+                  <span className="text-[14px]">{milestoneLabel(m.kind, m.payload)}</span>
+                  <span className="text-[12px] tabular-nums text-zinc-500">{m.achieved_on}</span>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        )}
+
         {/* Footer */}
         <form action="/auth/signout" method="post" className="px-1 pt-2">
           <button
@@ -320,4 +341,23 @@ function isoDay(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${dd}`;
+}
+
+function milestoneLabel(kind: string, payload: Record<string, unknown> | null): string {
+  switch (kind) {
+    case 'streak_7':     return '7-day streak';
+    case 'streak_30':    return '30-day streak';
+    case 'streak_100':   return '100-day streak';
+    case 'comeback_7':   return '7-day comeback';
+    case 'weekly_80':    return 'First ≥80% week';
+    case 'waist_phase_1': {
+      const w = payload?.waist_inches as number | undefined;
+      return `Waist Phase 1 hit${w ? ` (${w} in)` : ''}`;
+    }
+    case 'waist_phase_2': return 'Waist Phase 2 hit';
+    case 'waist_phase_3': return 'Waist Phase 3 hit';
+    case 'waist_optimal': return 'Waist optimal zone';
+    case 'first_lab':    return 'First lab uploaded';
+    default:             return kind.replace(/_/g, ' ');
+  }
 }

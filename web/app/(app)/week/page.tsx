@@ -37,7 +37,7 @@ interface Adjustment {
 export default async function WeekPage() {
   const supabase = createClient();
 
-  const [reviewsRes, waistRes, weightRes, pendingRes] = await Promise.all([
+  const [reviewsRes, waistRes, weightRes, pendingRes, groceriesRes] = await Promise.all([
     supabase.from('weekly_reviews').select('*').order('week_start_date', { ascending: false }).limit(8),
     supabase.from('waist_measurements').select('measured_on,average_inches')
       .order('measured_on', { ascending: true }).limit(12),
@@ -45,6 +45,8 @@ export default async function WeekPage() {
       .order('measured_on', { ascending: false }).limit(30),
     supabase.from('adjustments').select('id,action,trigger_signal,supporting_data,reason,expected_outcome,created_at')
       .eq('decision', 'pending').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('grocery_suggestions').select('category,item,rationale,week_start_date')
+      .order('week_start_date', { ascending: false }).limit(20),
   ]);
 
   const reviews = (reviewsRes.data ?? []) as WeeklyReview[];
@@ -53,6 +55,19 @@ export default async function WeekPage() {
   const weightRows = (weightRes.data ?? []) as Array<{ measured_on: string; weight_lbs: number }>;
   const weights = [...weightRows].reverse();
   const pending = pendingRes.data as Adjustment | null;
+
+  const groceries = (groceriesRes.data ?? []) as Array<{
+    category: 'protein' | 'vegetable' | 'legume' | 'hydration' | 'recovery_food';
+    item: string;
+    rationale: string;
+    week_start_date: string;
+  }>;
+  // Most recent week's list only — older rows stay in the DB for audit but
+  // the card should never mix weeks.
+  const currentGroceryWeek = groceries[0]?.week_start_date ?? null;
+  const currentGroceries = currentGroceryWeek
+    ? groceries.filter((g) => g.week_start_date === currentGroceryWeek)
+    : [];
 
   const waistSpark = waist.map((w) => ({ x: +new Date(w.measured_on), y: Number(w.average_inches) }));
   const weightSpark = weights.map((w) => ({ x: +new Date(w.measured_on), y: Number(w.weight_lbs) }));
@@ -178,6 +193,31 @@ export default async function WeekPage() {
                 </button>
               </form>
             </div>
+          </Card>
+        )}
+
+        {/* Groceries for next week */}
+        {currentGroceries.length > 0 && (
+          <Card>
+            <div className="mb-3 flex items-baseline justify-between">
+              <CardLabel>Groceries for week of {currentGroceryWeek}</CardLabel>
+              <span className="text-[11px] text-zinc-500">based on signals</span>
+            </div>
+            <ul className="-my-1 divide-y divide-zinc-100 dark:divide-zinc-800">
+              {currentGroceries.map((g, i) => (
+                <li key={`${g.category}-${g.item}-${i}`} className="py-2.5">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-[14px]">{g.item}</span>
+                    <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+                      {g.category.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  {g.rationale && (
+                    <p className="mt-0.5 text-[12px] text-zinc-500">{g.rationale}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
           </Card>
         )}
 

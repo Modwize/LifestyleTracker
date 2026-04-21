@@ -6,6 +6,7 @@ import {
   runWeeklyReview,
   selectAdjustment,
   classifyAlcoholWeek,
+  selectGrocerySuggestions,
 } from '../../../src/engine/index.ts';
 import { serviceClient, primaryUser, todayISO, addDays } from '../_shared/db.ts';
 import { sendMessage } from '../_shared/telegram.ts';
@@ -112,6 +113,32 @@ Deno.serve(async (req) => {
     adherence: review.adherencePct < 70,
     weightTrend: (review.weightChangeLbs ?? 0) > 0,
   });
+
+  // Grocery hints for next week. Keyed on (user, week, category, item) so
+  // re-running the review doesn't duplicate rows.
+  const groceries = selectGrocerySuggestions({
+    nutritionComplianceRatio: review.nutritionComplianceRatio,
+    adherencePct: review.adherencePct,
+    waistChangeInches: review.waistChangeInches,
+    sleepMinutesAvg: review.sleepMinutesAvg,
+    alcoholDrinksTotal: review.alcoholDrinksTotal,
+    plateauWeeks: plateau.data?.weeks_in_plateau ?? 0,
+  });
+  if (groceries.length) {
+    await supabase.from('grocery_suggestions').upsert(
+      groceries.map((g) => ({
+        user_id,
+        week_start_date: addDays(week_start_date, 7),   // hints apply to NEXT week
+        category: g.category,
+        item: g.item,
+        rationale: g.rationale,
+      })),
+      { onConflict: 'user_id,week_start_date,category,item', ignoreDuplicates: true },
+    );
+  }
+
+  // Milestone check — weekly adherence could have crossed an award threshold.
+  await supabase.rpc('award_pending_milestones', { p_user: user_id });
 
   await supabase.from('events').insert([
     { user_id, event_type: 'weekly.review_created', subject_week_start: week_start_date, payload: review },

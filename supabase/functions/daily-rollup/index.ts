@@ -117,7 +117,10 @@ Deno.serve(async (req) => {
     subject_day: day, payload: { score: result.score, phase_mode: phaseMode },
   });
 
-  // 6) Schedule tomorrow's notifications.
+  // 6) Milestone awards. Idempotent — only new ones fire events (via DB trigger).
+  await supabase.rpc('award_pending_milestones', { p_user: user_id });
+
+  // 7) Schedule tomorrow's notifications.
   const scheduled = await scheduleTomorrow(supabase, user_id, today);
 
   return Response.json({ result, scheduled });
