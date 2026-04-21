@@ -115,14 +115,47 @@ functions, the Next.js app, or a CLI.
 
 ## Edge functions
 
-- `supabase/functions/daily-rollup/` — Load a day's inputs, compute adherence,
-  upsert score, update streak/comeback, evaluate reset trigger, emit events.
-- `supabase/functions/weekly-review/` — Friday-only. Roll week up, classify
-  status, compute adjustment with full provenance, emit events, write
-  `weekly_reviews` + `adjustments`.
+| Function | Trigger | Purpose |
+| --- | --- | --- |
+| `ingest-oura` | `pg_cron` hourly | Pull Oura sleep + readiness (PAT auth), upsert idempotently. |
+| `ingest-apple-health` | iPhone Shortcut POST | Ingest steps + sleep + weight from HealthKit via a nightly Shortcut. |
+| `telegram-webhook` | Telegram → HTTPS | All inbound commands (/today, /nutrition, /waist, /weight, /drink, /workout, /surgery, /accept, /reject, /reset, ...). |
+| `notification-dispatcher` | `pg_cron` every 5 min | Reads `notifications` table, sends via Telegram, enforces ≤10/day cap. |
+| `daily-rollup` | `pg_cron` 03:05 EST | Computes yesterday's adherence, streaks, reset triggers; schedules tomorrow's notifications. |
+| `weekly-review` | `pg_cron` Friday 07:00 EST | Rolls week, selects adjustment, sends Telegram summary. |
 
-Both are idempotent on their natural keys; re-running after a late sync is
-safe.
+All compute jobs are idempotent on their natural keys; re-running after a late
+sync is safe.
+
+## Telegram commands
+
+```
+/start                 link chat (one-time)
+/help                  list commands
+/today                 today's actions + week adherence
+/week                  weekly snapshot
+/nutrition fully|mostly|recovered|off
+/protein <g> [min_after_wake]
+/steps <n>   /sleep <minutes>
+/waist <r1> <r2>   /weight <lbs>
+/drink <n> [note]
+/workout done|skip|rehab
+/cheat on|off
+/surgery YYYY-MM-DD
+/accept | /reject      decide latest pending adjustment
+/reset ack             acknowledge the open reset protocol
+```
+
+## Setup
+
+Full walkthrough in [`docs/SETUP.md`](docs/SETUP.md). High-level:
+
+1. Create Supabase project → `supabase db push` → run `supabase/seeds/0001_user_profile.sql`
+2. Get Oura PAT, create Telegram bot, generate Apple Shortcut secret
+3. `supabase secrets set --env-file .env` then `supabase functions deploy <each>`
+4. Register Telegram webhook; register cron via `supabase/cron.sql`
+5. Install the iPhone Shortcut (steps + sleep + weight → POST)
+6. Send `/start` to your bot
 
 ## Event bus
 
