@@ -1,7 +1,6 @@
 // Today screen — the home of Healthwize.
-// Pulls only from views/tables that the engine maintains. Read-only here;
-// quick-add lives in the Telegram bot for now.
 
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardLabel } from '@/components/Card';
 import { ScoreRing } from '@/components/ScoreRing';
@@ -11,6 +10,9 @@ import { Header } from '@/components/Header';
 import {
   formatMinutes, formatNumber, formatPct, COMPLIANCE_LABEL,
 } from '@/lib/format';
+import {
+  acknowledgeReset, decidePhaseTransition, scheduleSurgery,
+} from './actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,34 +35,41 @@ interface WeekAdherence {
   tracked_days: number;
 }
 
-interface AlertRow {
-  kind: 'plateau' | 'reset_pending' | 'adjustment_pending';
-  ref_id: string;
-  since: string;
+interface OpenReset { id: string; triggered_on: string }
+interface PendingPhaseRequest {
+  id: string;
+  from_mode: string;
+  to_mode: string;
+  reason: string;
+  expected_outcome: string | null;
+  created_at: string;
+}
+interface PendingAdjustment {
+  id: string; action: string; reason: string; created_at: string;
 }
 
 export default async function TodayPage() {
   const supabase = createClient();
-
   const today = new Date();
 
-  // RLS scopes everything to auth.uid(), so no explicit user filter needed.
   const [
-    actionsRes,
-    scoreRes,
-    streakRes,
-    weekRes,
-    alertsRes,
-    dailyLogRes,
+    actionsRes, scoreRes, streakRes, weekRes, dailyLogRes,
+    phaseRes, openResetRes, pendingPhaseReqRes, pendingAdjRes, surgeryLifeRes,
   ] = await Promise.all([
     supabase.from('today_actions').select('*').maybeSingle(),
-    supabase.from('daily_adherence_scores').select('score')
-      .eq('day', isoDay(today)).maybeSingle(),
+    supabase.from('daily_adherence_scores').select('score').eq('day', isoDay(today)).maybeSingle(),
     supabase.from('streaks').select('current_adherence_streak,best_adherence_streak,current_comeback_streak').maybeSingle(),
     supabase.from('current_week_adherence').select('*').maybeSingle(),
-    supabase.from('home_alerts').select('*').order('since', { ascending: false }),
-    supabase.from('daily_logs').select('protein_breakfast_grams,sleep_minutes')
-      .eq('day', isoDay(today)).maybeSingle(),
+    supabase.from('daily_logs').select('protein_breakfast_grams,sleep_minutes').eq('day', isoDay(today)).maybeSingle(),
+    supabase.from('phase_states').select('mode').is('ended_at', null).maybeSingle(),
+    supabase.from('reset_activations').select('id,triggered_on').is('acknowledged_at', null).maybeSingle(),
+    supabase.from('phase_transition_requests')
+      .select('id,from_mode,to_mode,reason,expected_outcome,created_at')
+      .eq('decision', 'pending').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('adjustments').select('id,action,reason,created_at')
+      .eq('decision', 'pending').order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('life_events').select('event_date')
+      .eq('kind', 'surgery_scheduled').order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
 
   const actions = actionsRes.data as TodayActions | null;
@@ -71,18 +80,25 @@ export default async function TodayPage() {
     current_comeback_streak: number;
   } | null;
   const weekAdherence = weekRes.data as WeekAdherence | null;
-  const alerts = (alertsRes.data ?? []) as AlertRow[];
   const dailyLog = dailyLogRes.data as {
     protein_breakfast_grams: number | null;
     sleep_minutes: number | null;
   } | null;
+  const phaseMode = (phaseRes.data as { mode: string } | null)?.mode ?? 'normal';
+  const openReset = openResetRes.data as OpenReset | null;
+  const pendingPhase = pendingPhaseReqRes.data as PendingPhaseRequest | null;
+  const pendingAdj = pendingAdjRes.data as PendingAdjustment | null;
+  const surgeryScheduled = surgeryLifeRes.data as { event_date: string } | null;
+
+  const hasPending = !!(openReset || pendingPhase || pendingAdj);
+  const needsSurgeryDate = phaseMode === 'pre_surgery' && !surgeryScheduled;
 
   return (
     <>
-      <Header today={today} />
+      <Header today={today} phaseMode={phaseMode} />
 
       <main className="flex-1 space-y-3 px-3 pb-safe">
-        {/* Hero: today's score + streak */}
+        {/* Hero: score + streak */}
         <Card className="flex items-center gap-5 py-5">
           <div className="relative">
             <ScoreRing value={score?.score ?? null} />
@@ -102,6 +118,78 @@ export default async function TodayPage() {
             ) : null}
           </div>
         </Card>
+
+        {/* Pending actions — only renders when something needs a decision */}
+        {hasPending && (
+          <Card>
+            <CardLabel>Pending actions</CardLabel>
+            <div className="-my-1 divide-y divide-zinc-100 dark:divide-zinc-800">
+              {openReset && (
+                <PendingBlock
+                  title="Reset protocol available"
+                  subtitle={`Triggered ${openReset.triggered_on}. Protein + hydration + simplified meals + sleep priority for 48h.`}
+                >
+                  <form action={acknowledgeReset}>
+                    <PrimaryButton>Acknowledge</PrimaryButton>
+                  </form>
+                </PendingBlock>
+              )}
+
+              {pendingPhase && (
+                <PendingBlock
+                  title={`Phase transition: ${pendingPhase.from_mode.replace(/_/g, ' ')} → ${pendingPhase.to_mode.replace(/_/g, ' ')}`}
+                  subtitle={pendingPhase.reason}
+                  footer={pendingPhase.expected_outcome}
+                >
+                  <div className="grid grid-cols-2 gap-2">
+                    <form action={decidePhaseTransition}>
+                      <input type="hidden" name="id" value={pendingPhase.id} />
+                      <input type="hidden" name="decision" value="approved" />
+                      <PrimaryButton>Approve</PrimaryButton>
+                    </form>
+                    <form action={decidePhaseTransition}>
+                      <input type="hidden" name="id" value={pendingPhase.id} />
+                      <input type="hidden" name="decision" value="rejected" />
+                      <SecondaryButton>Reject</SecondaryButton>
+                    </form>
+                  </div>
+                </PendingBlock>
+              )}
+
+              {pendingAdj && (
+                <PendingBlock
+                  title={`Adjustment: ${pendingAdj.action.replace(/_/g, ' ')}`}
+                  subtitle={pendingAdj.reason}
+                >
+                  <Link
+                    href="/week"
+                    className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 px-4 text-[14px] font-medium dark:border-zinc-800"
+                  >
+                    Review on Week
+                  </Link>
+                </PendingBlock>
+              )}
+            </div>
+          </Card>
+        )}
+
+        {/* Surgery-date setter — only in pre_surgery with no scheduled date */}
+        {needsSurgeryDate && (
+          <Card>
+            <CardLabel>Surgery date</CardLabel>
+            <p className="mb-3 text-[13px] text-zinc-500">
+              You're in pre-surgery mode but no date is set. Recording a date queues a
+              pre→post transition request that surfaces here on the day.
+            </p>
+            <form action={scheduleSurgery} className="grid grid-cols-[1fr_auto] gap-2">
+              <input
+                required type="date" name="surgery_date"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[15px] dark:border-zinc-800 dark:bg-zinc-900"
+              />
+              <PrimaryButton>Save</PrimaryButton>
+            </form>
+          </Card>
+        )}
 
         {/* Today's actions */}
         <Card>
@@ -173,25 +261,6 @@ export default async function TodayPage() {
           <AdherenceBar value={weekAdherence?.adherence_pct ?? 0} />
         </Card>
 
-        {/* Alerts */}
-        {alerts.length > 0 ? (
-          <Card>
-            <CardLabel>Alerts</CardLabel>
-            <ul className="-my-1 divide-y divide-zinc-100 dark:divide-zinc-800">
-              {alerts.map((a) => (
-                <li key={`${a.kind}-${a.ref_id}`} className="flex items-center justify-between py-2.5">
-                  <span className="text-[15px]">
-                    {a.kind === 'plateau' && 'Plateau in progress'}
-                    {a.kind === 'reset_pending' && 'Reset protocol available'}
-                    {a.kind === 'adjustment_pending' && 'Adjustment pending review'}
-                  </span>
-                  <span className="text-[13px] text-zinc-500">since {a.since}</span>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        ) : null}
-
         {/* Footer */}
         <form action="/auth/signout" method="post" className="px-1 pt-2">
           <button
@@ -206,8 +275,47 @@ export default async function TodayPage() {
   );
 }
 
+function PendingBlock({ title, subtitle, footer, children }: {
+  title: string;
+  subtitle?: string;
+  footer?: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2 py-3">
+      <div className="space-y-0.5">
+        <p className="text-[14px] font-medium text-zinc-900 dark:text-zinc-100">{title}</p>
+        {subtitle && <p className="text-[13px] text-zinc-600 dark:text-zinc-400">{subtitle}</p>}
+        {footer && <p className="text-[12px] text-zinc-500">{footer}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function PrimaryButton({ children }: { children: React.ReactNode }) {
+  return (
+    <button
+      type="submit"
+      className="h-10 w-full rounded-xl bg-zinc-900 px-4 text-[14px] font-medium text-white transition hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({ children }: { children: React.ReactNode }) {
+  return (
+    <button
+      type="submit"
+      className="h-10 w-full rounded-xl border border-zinc-300 bg-transparent px-4 text-[14px] font-medium transition hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
+    >
+      {children}
+    </button>
+  );
+}
+
 function isoDay(d: Date): string {
-  // YYYY-MM-DD in user's local timezone (the device).
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');

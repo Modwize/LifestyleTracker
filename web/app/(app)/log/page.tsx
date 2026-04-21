@@ -3,6 +3,7 @@
 
 import { Card, CardLabel } from '@/components/Card';
 import { Header } from '@/components/Header';
+import Link from 'next/link';
 import {
   logProtein, logSteps, logSleep, logNutrition,
   logWaist, logWeight, logDrinks, logWorkout, logCheat,
@@ -26,7 +27,15 @@ export default function LogPage() {
         </Card>
 
         <Card>
-          <CardLabel>Nutrition compliance</CardLabel>
+          <div className="mb-3 flex items-baseline justify-between">
+            <CardLabel>Nutrition compliance</CardLabel>
+            <Link
+              href="/log/scan"
+              className="text-[12px] font-medium text-zinc-700 underline-offset-4 hover:underline dark:text-zinc-300"
+            >
+              Scan barcode
+            </Link>
+          </div>
           <form action={logNutrition} className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <RadioTile name="compliance" value="fully_compliant" label="Fully" />
