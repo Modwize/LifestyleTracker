@@ -57,6 +57,15 @@ supabase functions deploy telegram-webhook
 supabase functions deploy notification-dispatcher
 supabase functions deploy daily-rollup
 supabase functions deploy weekly-review
+supabase functions deploy extract-lab-draw
+```
+
+### Seed canonical markers (for bloodwork)
+
+After migrations run, seed the ~65 LOINC-mapped markers:
+
+```bash
+psql "$SUPABASE_DB_URL" -f supabase/seeds/0002_canonical_markers.sql
 ```
 
 ## 5. Register the Telegram webhook
