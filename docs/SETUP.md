@@ -47,6 +47,22 @@ One-time setup for the personal instance. ~30 minutes end to end.
    ```
 2. Save as `APPLE_SHORTCUT_SHARED_SECRET`.
 
+### Web Push (VAPID)
+Only needed if you want browser push notifications as a Telegram backup.
+
+1. Generate a VAPID key pair (once per environment):
+   ```bash
+   # Simplest: use web-push locally
+   npx -y web-push generate-vapid-keys
+   ```
+   Copy the `Public Key` and `Private Key` base64url strings.
+2. Save both to the root `.env`:
+   - `VAPID_PUBLIC_KEY`
+   - `VAPID_PRIVATE_KEY`
+   - `VAPID_SUBJECT=mailto:you@example.com`
+3. Also set the public key in `web/.env.local` as `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (same value, exposed to the browser).
+4. On the deployed PWA: open the installed app (iOS requires Add to Home Screen first), go to Today → Settings → Enable push.
+
 ## 4. Deploy edge functions + secrets
 
 ```bash

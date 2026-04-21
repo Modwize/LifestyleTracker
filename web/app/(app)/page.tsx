@@ -13,6 +13,7 @@ import {
 import {
   acknowledgeReset, decidePhaseTransition, scheduleSurgery,
 } from './actions';
+import { PushToggle } from '@/components/PushToggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -281,6 +282,12 @@ export default async function TodayPage() {
             </ul>
           </Card>
         )}
+
+        {/* Settings */}
+        <Card>
+          <CardLabel>Settings</CardLabel>
+          <PushToggle />
+        </Card>
 
         {/* Footer */}
         <form action="/auth/signout" method="post" className="px-1 pt-2">

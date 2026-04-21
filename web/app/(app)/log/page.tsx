@@ -1,8 +1,11 @@
 // Log screen — quick-add forms. Mirrors every Telegram command with a tap-first UI.
-// Each form is its own server action, so partial submits don't blow away other entries.
+// Each form is wrapped in OfflineForm so submissions queue to IndexedDB when
+// the device is offline and replay through /api/log on reconnect.
 
 import { Card, CardLabel } from '@/components/Card';
 import { Header } from '@/components/Header';
+import { OfflineForm } from '@/components/OfflineForm';
+import { OfflineQueueFlusher } from '@/components/OfflineQueueFlusher';
 import Link from 'next/link';
 import {
   logProtein, logSteps, logSleep, logNutrition,
@@ -15,15 +18,16 @@ export default function LogPage() {
   return (
     <>
       <Header today={new Date()} />
+      <OfflineQueueFlusher />
 
       <main className="space-y-3 px-3 pb-6">
         <Card>
           <CardLabel>Protein anchor</CardLabel>
-          <form action={logProtein} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+          <OfflineForm op="protein" action={logProtein} className="grid grid-cols-[1fr_1fr_auto] gap-2">
             <NumberInput name="grams" placeholder="Grams" min={10} step={1} />
             <NumberInput name="minutes_after_wake" placeholder="Min after wake" min={0} step={5} />
             <SubmitButton>Log</SubmitButton>
-          </form>
+          </OfflineForm>
         </Card>
 
         <Card>
@@ -36,7 +40,7 @@ export default function LogPage() {
               Scan barcode
             </Link>
           </div>
-          <form action={logNutrition} className="space-y-2">
+          <OfflineForm op="nutrition" action={logNutrition} className="space-y-2">
             <div className="grid grid-cols-2 gap-2">
               <RadioTile name="compliance" value="fully_compliant" label="Fully" />
               <RadioTile name="compliance" value="mostly_compliant" label="Mostly" />
@@ -44,32 +48,32 @@ export default function LogPage() {
               <RadioTile name="compliance" value="off_plan" label="Off plan" />
             </div>
             <SubmitButton full>Log compliance</SubmitButton>
-          </form>
+          </OfflineForm>
         </Card>
 
         <Card>
           <CardLabel>Steps</CardLabel>
-          <form action={logSteps} className="grid grid-cols-[1fr_auto] gap-2">
+          <OfflineForm op="steps" action={logSteps} className="grid grid-cols-[1fr_auto] gap-2">
             <NumberInput name="steps_total" placeholder="Total steps today" min={0} step={100} />
             <SubmitButton>Log</SubmitButton>
-          </form>
+          </OfflineForm>
         </Card>
 
         <Card>
           <CardLabel>Sleep</CardLabel>
-          <form action={logSleep} className="grid grid-cols-[1fr_auto] gap-2">
+          <OfflineForm op="sleep" action={logSleep} className="grid grid-cols-[1fr_auto] gap-2">
             <NumberInput name="sleep_minutes" placeholder="Minutes last night" min={0} step={15} />
             <SubmitButton>Log</SubmitButton>
-          </form>
+          </OfflineForm>
         </Card>
 
         <Card>
           <CardLabel>Waist (Friday)</CardLabel>
-          <form action={logWaist} className="grid grid-cols-[1fr_1fr_auto] gap-2">
+          <OfflineForm op="waist" action={logWaist} className="grid grid-cols-[1fr_1fr_auto] gap-2">
             <NumberInput name="reading_1" placeholder="Reading 1 (in)" step={0.25} />
             <NumberInput name="reading_2" placeholder="Reading 2 (in)" step={0.25} />
             <SubmitButton>Log</SubmitButton>
-          </form>
+          </OfflineForm>
           <p className="mt-2 text-[12px] text-zinc-500">
             Navel level, relaxed, after normal exhale. Both readings stored; average is computed.
           </p>
@@ -77,36 +81,36 @@ export default function LogPage() {
 
         <Card>
           <CardLabel>Weight</CardLabel>
-          <form action={logWeight} className="grid grid-cols-[1fr_auto] gap-2">
+          <OfflineForm op="weight" action={logWeight} className="grid grid-cols-[1fr_auto] gap-2">
             <NumberInput name="weight_lbs" placeholder="Pounds" step={0.1} />
             <SubmitButton>Log</SubmitButton>
-          </form>
+          </OfflineForm>
         </Card>
 
         <Card>
           <CardLabel>Alcohol</CardLabel>
-          <form action={logDrinks} className="grid grid-cols-[auto_1fr_auto] gap-2">
+          <OfflineForm op="drinks" action={logDrinks} className="grid grid-cols-[auto_1fr_auto] gap-2">
             <NumberInput name="drinks" placeholder="#" min={0.5} step={0.5} className="w-16" />
             <TextInput name="note" placeholder="Context (optional)" />
             <SubmitButton>Log</SubmitButton>
-          </form>
+          </OfflineForm>
         </Card>
 
         <Card>
           <CardLabel>Workout</CardLabel>
-          <form action={logWorkout} className="space-y-2">
+          <OfflineForm op="workout" action={logWorkout} className="space-y-2">
             <div className="grid grid-cols-3 gap-2">
               <RadioTile name="outcome" value="done" label="Done" />
               <RadioTile name="outcome" value="rehab" label="Rehab" />
               <RadioTile name="outcome" value="skip" label="Skip" />
             </div>
             <SubmitButton full>Log workout</SubmitButton>
-          </form>
+          </OfflineForm>
         </Card>
 
         <Card>
           <CardLabel>Cheat day</CardLabel>
-          <form action={logCheat} className="grid grid-cols-2 gap-2">
+          <OfflineForm op="cheat" action={logCheat} className="grid grid-cols-2 gap-2">
             <button
               type="submit" name="on" value="on"
               className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-[14px] font-medium dark:border-zinc-800 dark:bg-zinc-900"
@@ -119,7 +123,7 @@ export default function LogPage() {
             >
               Cheat off
             </button>
-          </form>
+          </OfflineForm>
         </Card>
       </main>
     </>
